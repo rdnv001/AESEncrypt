@@ -33,7 +33,7 @@ std::vector<unsigned char> loadFile(const std::string& fname) {
 	}
 	return std::vector<unsigned char>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
-
+ 
 // Запись файла
 void saveFile(const std::string& fname, const std::vector<unsigned char>& data) {
 	std::ofstream f(fname, std::ios::binary);
