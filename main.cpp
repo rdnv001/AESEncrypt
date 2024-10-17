@@ -1,165 +1,180 @@
+#include <openssl/conf.h>
 #include <openssl/evp.h>
-#include <openssl/aes.h>
 #include <openssl/err.h>
+#include <openssl/rand.h>
+#include <cstring>
 #include <iostream>
 #include <fstream>
 #include <vector>
-#include <cstring>
-#include <unistd.h> // Для getopt на Unix-системах, на Windows потребуется аналог
+#include <unistd.h>  // для getopt()
 
-#define AES_KEYLEN 32
-#define AES_BLOCK_SIZE 16
+constexpr int AES_KEY_LENGTH = 32;  // для AES-256
+constexpr int AES_BLOCK_SIZE = 16;  // размер блока AES
 
 void handleErrors() {
     ERR_print_errors_fp(stderr);
-    abort();
+    std::abort();
 }
 
-bool deriveKey(const std::string& password, unsigned char* key, unsigned char* iv) {
-    const unsigned char* salt = nullptr;
-    int iterations = 10000;
-    if (!PKCS5_PBKDF2_HMAC(password.c_str(), password.size(), salt, 0, iterations, EVP_sha256(), AES_KEYLEN / 8, key)) {
-        return false;
+// Генерация ключа из пароля с использованием PBKDF2
+void generateKeyFromPassword(const std::string& password, unsigned char* key) {
+    const unsigned char* salt = reinterpret_cast<const unsigned char*>("12345678"); // Соль для PBKDF2
+    if (PKCS5_PBKDF2_HMAC_SHA1(password.c_str(), password.size(), salt, 8, 10000, AES_KEY_LENGTH, key) != 1) {
+        handleErrors();
     }
-    memcpy(iv, key, AES_BLOCK_SIZE);  // Используем часть ключа как IV
-    return true;
 }
 
-bool encryptFile(const std::string& inputFilePath, const std::string& outputFilePath, const std::string& password) {
-    unsigned char key[AES_KEYLEN / 8];
-    unsigned char iv[AES_BLOCK_SIZE];
-    
-    if (!deriveKey(password, key, iv)) {
-        std::cerr << "Error deriving key and IV" << std::endl;
-        return false;
+// Чтение файла
+std::vector<unsigned char> readFile(const std::string& filename) {
+    std::ifstream file(filename, std::ios::binary);
+    if (!file.is_open()) {
+        std::cerr << "Cannot open file: " << filename << '\n';
+        std::exit(1);
     }
+    return std::vector<unsigned char>((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+}
 
-    std::ifstream inputFile(inputFilePath, std::ios::binary);
-    std::ofstream outputFile(outputFilePath, std::ios::binary);
-
-    if (!inputFile.is_open() || !outputFile.is_open()) {
-        std::cerr << "Error opening files" << std::endl;
-        return false;
+// Запись файла
+void writeFile(const std::string& filename, const std::vector<unsigned char>& data) {
+    std::ofstream file(filename, std::ios::binary);
+    if (!file.is_open()) {
+        std::cerr << "Cannot open file: " << filename << '\n';
+        std::exit(1);
     }
+    file.write(reinterpret_cast<const char*>(data.data()), data.size());
+}
 
+// Шифрование данных с записью IV в начало файла
+std::vector<unsigned char> encryptDataWithIV(const std::vector<unsigned char>& plaintext, unsigned char* key, unsigned char* iv) {
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (!EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)) {
+    if (!ctx) handleErrors();
+
+    if (EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv) != 1) {
         handleErrors();
     }
 
-    std::vector<unsigned char> buffer(1024);
-    std::vector<unsigned char> ciphertext(buffer.size() + AES_BLOCK_SIZE);
-    int len, ciphertext_len;
+    std::vector<unsigned char> ciphertext(plaintext.size() + AES_BLOCK_SIZE);
+    int len = 0;
+    int ciphertext_len = 0;
 
-    while (inputFile.read(reinterpret_cast<char*>(buffer.data()), buffer.size())) {
-        if (!EVP_EncryptUpdate(ctx, ciphertext.data(), &len, buffer.data(), buffer.size())) {
-            handleErrors();
-        }
-        outputFile.write(reinterpret_cast<char*>(ciphertext.data()), len);
-    }
-
-    if (!EVP_EncryptFinal_ex(ctx, ciphertext.data(), &len)) {
+    if (EVP_EncryptUpdate(ctx, ciphertext.data(), &len, plaintext.data(), plaintext.size()) != 1) {
         handleErrors();
     }
-    outputFile.write(reinterpret_cast<char*>(ciphertext.data()), len);
+    ciphertext_len = len;
+
+    if (EVP_EncryptFinal_ex(ctx, ciphertext.data() + len, &len) != 1) {
+        handleErrors();
+    }
+    ciphertext_len += len;
+    ciphertext.resize(ciphertext_len);
 
     EVP_CIPHER_CTX_free(ctx);
-    inputFile.close();
-    outputFile.close();
 
-    return true;
+    // Добавляем IV в начало шифрованных данных
+    std::vector<unsigned char> result(AES_BLOCK_SIZE + ciphertext.size());
+    std::copy(iv, iv + AES_BLOCK_SIZE, result.begin());
+    std::copy(ciphertext.begin(), ciphertext.end(), result.begin() + AES_BLOCK_SIZE);
+
+    return result;
 }
 
-bool decryptFile(const std::string& inputFilePath, const std::string& outputFilePath, const std::string& password) {
-    unsigned char key[AES_KEYLEN / 8];
+// Дешифрование данных с использованием IV из начала файла
+std::vector<unsigned char> decryptDataWithIV(const std::vector<unsigned char>& ciphertext, unsigned char* key) {
     unsigned char iv[AES_BLOCK_SIZE];
-    
-    if (!deriveKey(password, key, iv)) {
-        std::cerr << "Error deriving key and IV" << std::endl;
-        return false;
-    }
+    std::copy(ciphertext.begin(), ciphertext.begin() + AES_BLOCK_SIZE, iv);
 
-    std::ifstream inputFile(inputFilePath, std::ios::binary);
-    std::ofstream outputFile(outputFilePath, std::ios::binary);
-
-    if (!inputFile.is_open() || !outputFile.is_open()) {
-        std::cerr << "Error opening files" << std::endl;
-        return false;
+    std::cout << "Extracted IV: ";
+    for (int i = 0; i < AES_BLOCK_SIZE; ++i) {
+        std::cout << std::hex << static_cast<int>(iv[i]) << ' ';
     }
+    std::cout << std::dec << '\n';  // Возврат к десятичному
 
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
-    if (!EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv)) {
+    if (!ctx) handleErrors();
+
+    if (EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv) != 1) {
         handleErrors();
     }
 
-    std::vector<unsigned char> buffer(1024);
-    std::vector<unsigned char> plaintext(buffer.size() + AES_BLOCK_SIZE);
-    int len, plaintext_len;
+    std::vector<unsigned char> plaintext(ciphertext.size() - AES_BLOCK_SIZE);
+    int len = 0;
+    int plaintext_len = 0;
 
-    while (inputFile.read(reinterpret_cast<char*>(buffer.data()), buffer.size())) {
-        if (!EVP_DecryptUpdate(ctx, plaintext.data(), &len, buffer.data(), buffer.size())) {
-            handleErrors();
-        }
-        outputFile.write(reinterpret_cast<char*>(plaintext.data()), len);
-    }
-
-    if (!EVP_DecryptFinal_ex(ctx, plaintext.data(), &len)) {
+    if (EVP_DecryptUpdate(ctx, plaintext.data(), &len, ciphertext.data() + AES_BLOCK_SIZE, ciphertext.size() - AES_BLOCK_SIZE) != 1) {
         handleErrors();
     }
-    outputFile.write(reinterpret_cast<char*>(plaintext.data()), len);
+    plaintext_len = len;
+
+    if (EVP_DecryptFinal_ex(ctx, plaintext.data() + len, &len) != 1) {
+        handleErrors();
+    }
+    plaintext_len += len;
+
+    plaintext.resize(plaintext_len);
 
     EVP_CIPHER_CTX_free(ctx);
-    inputFile.close();
-    outputFile.close();
-
-    return true;
+    return plaintext;
 }
 
-int main(int argc, char *argv[]) {
-    int option;
-    std::string inputFilePath, outputFilePath, password;
-    bool decrypt = false;
+// Вывод использования программы
+void printUsage(const char* program) {
+    std::cout << "Usage: " << program << " [-e | -d] -i <inputfile> -o <outputfile> -p <password>\n";
+}
 
-    while ((option = getopt(argc, argv, "i:o:p:d")) != -1) {
-        switch (option) {
-            case 'i':
-                inputFilePath = optarg;
-                break;
-            case 'o':
-                outputFilePath = optarg;
-                break;
-            case 'p':
-                password = optarg;
-                break;
-            case 'd':
-                decrypt = true;
-                break;
-            default:
-                std::cerr << "Usage: " << argv[0] << " -i input -o output -p password [-d]" << std::endl;
-                return 1;
+int main(int argc, char* argv[]) {
+    int opt;
+    std::string inputFile, outputFile, password;
+    bool encrypt = false, decrypt = false;
+
+    // Разбор аргументов командной строки
+    while ((opt = getopt(argc, argv, "edi:o:p:")) != -1) {
+        switch (opt) {
+            case 'e': encrypt = true; break;
+            case 'd': decrypt = true; break;
+            case 'i': inputFile = optarg; break;
+            case 'o': outputFile = optarg; break;
+            case 'p': password = optarg; break;
+            default: printUsage(argv[0]); return 1;
         }
     }
 
-    if (inputFilePath.empty() || outputFilePath.empty() || password.empty()) {
-        std::cerr << "Missing required arguments" << std::endl;
+    if ((encrypt && decrypt) || (!encrypt && !decrypt) || inputFile.empty() || outputFile.empty() || password.empty()) {
+        printUsage(argv[0]);
         return 1;
     }
 
-    if (decrypt) {
-        if (decryptFile(inputFilePath, outputFilePath, password)) {
-            std::cout << "File decrypted successfully" << std::endl;
-        } else {
-            std::cerr << "Error decrypting file" << std::endl;
-            return 1;
+    unsigned char key[AES_KEY_LENGTH];
+    unsigned char iv[AES_BLOCK_SIZE];
+
+    // Генерация ключа из пароля
+    generateKeyFromPassword(password, key);
+
+    // Чтение данных из файла
+    std::vector<unsigned char> fileData = readFile(inputFile);
+    std::vector<unsigned char> resultData;
+
+    if (encrypt) {
+        // Генерация случайного IV
+        if (!RAND_bytes(iv, AES_BLOCK_SIZE)) {
+            handleErrors();
         }
-    } else {
-        if (encryptFile(inputFilePath, outputFilePath, password)) {
-            std::cout << "File encrypted successfully" << std::endl;
-        } else {
-            std::cerr << "Error encrypting file" << std::endl;
-            return 1;
+
+        std::cout << "Generated IV: ";
+        for (int i = 0; i < AES_BLOCK_SIZE; ++i) {
+            std::cout << std::hex << static_cast<int>(iv[i]) << ' ';
         }
+        std::cout << std::dec << '\n';  // Возврат к десятичному
+
+        // Шифрование данных с записью IV
+        resultData = encryptDataWithIV(fileData, key, iv);
+    } else if (decrypt) {
+        // Дешифрование данных с использованием IV из файла
+        resultData = decryptDataWithIV(fileData, key);
     }
+
+    // Запись результата в файл
+    writeFile(outputFile, resultData);
+    std::cout << "Operation " << (encrypt ? "encryption" : "decryption") << " completed successfully!\n";
 
     return 0;
 }
