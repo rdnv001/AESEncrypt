@@ -7,7 +7,7 @@
 #include <cstring>
 #include <unistd.h> // Для getopt на Unix-системах, на Windows потребуется аналог
 
-#define AES_KEYLEN 256
+#define AES_KEYLEN 32
 #define AES_BLOCK_SIZE 16
 
 void handleErrors() {
