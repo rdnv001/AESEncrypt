@@ -133,7 +133,7 @@ void&#160;</td><td class="memItemRight" valign="bottom"><b>display_errors</b> ()
 <tr class="memdesc:a488d4a88ccc2c3c5ca06be00a4623e22"><td class="mdescLeft">&#160;</td><td class="mdescRight">Вывод инструкции по использованию программы.  <br /></td></tr>
 <tr class="separator:a488d4a88ccc2c3c5ca06be00a4623e22"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a0ddf1224851353fc92bfbff6f499fa97" id="r_a0ddf1224851353fc92bfbff6f499fa97"><td class="memItemLeft" align="right" valign="top">int&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="#a0ddf1224851353fc92bfbff6f499fa97">main</a> (int argc, char *argv[])</td></tr>
-<tr class="memdesc:a0ddf1224851353fc92bfbff6f499fa97"><td class="mdescLeft">&#160;</td><td class="mdescRight">Главная функция программы. Разбирает аргументы командной строки и запускает процесс шифрования/дешифрования.  <br /></td></tr>
+<tr class="memdesc:a0ddf1224851353fc92bfbff6f499fa97"><td class="mdescLeft">&#160;</td><td class="mdescRight">Основная функция программы для шифрования и дешифрования файлов с использованием AES-256.  <br /></td></tr>
 <tr class="separator:a0ddf1224851353fc92bfbff6f499fa97"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table><table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a id="var-members" name="var-members"></a>
@@ -294,15 +294,27 @@ constexpr int&#160;</td><td class="memItemRight" valign="bottom"><b>BLOCK_SIZE</
       </table>
 </div><div class="memdoc">
 
-<p>Главная функция программы. Разбирает аргументы командной строки и запускает процесс шифрования/дешифрования. </p>
+<p>Основная функция программы для шифрования и дешифрования файлов с использованием AES-256. </p>
+<p>Функция принимает аргументы командной строки для выбора режима работы (шифрование или дешифрование), а также для указания входного и выходного файлов, и пароля для генерации ключа.</p>
 <dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
-    <tr><td class="paramdir">[in]</td><td class="paramname">argc</td><td>Количество аргументов. </td></tr>
-    <tr><td class="paramdir">[in]</td><td class="paramname">argv</td><td>Массив аргументов командной строки. </td></tr>
+    <tr><td class="paramname">argc</td><td>Количество аргументов командной строки. </td></tr>
+    <tr><td class="paramname">argv</td><td>Массив аргументов командной строки.<ul>
+<li><code>-e</code> для шифрования.</li>
+<li><code>-d</code> для дешифрования.</li>
+<li><code>-i</code> путь к входному файлу.</li>
+<li><code>-o</code> путь к выходному файлу.</li>
+<li><code>-p</code> пароль для генерации ключа.</li>
+</ul>
+</td></tr>
   </table>
   </dd>
 </dl>
-<dl class="section return"><dt>Returns</dt><dd>Код завершения программы. </dd></dl>
+<dl class="section return"><dt>Returns</dt><dd>Код завершения программы.<ul>
+<li><code>0</code> если операция завершена успешно.</li>
+<li><code>1</code> если произошла ошибка в аргументах или процессе выполнения. </li>
+</ul>
+</dd></dl>
 
 </div>
 </div>
